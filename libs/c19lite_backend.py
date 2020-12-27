@@ -100,7 +100,7 @@ def district_strip(data, lang):
     labels = category['label']
     index = category['index']
     content = {
-        k: {'name': v, 'amount': municipality_amount(
+        k: {'name': v, 'cases': municipality_amount(
             value, index, k), 'population': population.get(v, 0)}
         for k, v in labels.items()}
 
@@ -116,14 +116,11 @@ def cache_expired(path, age=(60 * 60)):
         time_then = datetime.fromtimestamp(time_stat)
         expired = (time_now - time_then).seconds
 
-        if expired > age:
-            os.remove(path)
-
     else:
 
         expired = age + 1
 
-    return expired
+    return expired > age
 
 
 def cache_path(path):
@@ -140,6 +137,9 @@ def download_districts(lang='sv'):
     path = cache_path(f"districts_{lang}.json")
 
     if cache_expired(path):
+
+        if os.path.exists(path):
+            os.remove(path)
 
         url = (
             f"https://sampo.thl.fi/pivot/prod/{lang}/"
@@ -158,8 +158,12 @@ def download_district_population(lang='sv'):
     """Reads the table from Wikipedia"""
 
     path = cache_path("population.json")
+    week = (60 * 60 * 24 * 7)
 
-    if cache_expired(path, age=(60 * 60 * 24 * 7)):
+    if cache_expired(path, age=week):
+
+        if os.path.exists(path):
+            os.remove(path)
 
         url = (
             "https://sv.wikipedia.org/wiki/"
