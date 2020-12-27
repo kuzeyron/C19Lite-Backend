@@ -5,6 +5,7 @@ from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
+from starlette import status
 
 
 def text_strip(text):
@@ -22,31 +23,29 @@ def wikipedia(response):
     """Table of content getting put together from Wikipedia"""
 
     container = {'sv': {}, 'fi': {}, 'en': {}, }
+    soup = BeautifulSoup(response.content, "html.parser")
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.content, "html.parser")
+    for table in soup.find_all(
+        "table", {"class": "sortable wikitable"}
+    ):
+        for tr in table.find_all('tr'):
+            rows = []
 
-        for table in soup.find_all(
-            "table", {"class": "sortable wikitable"}
-        ):
-            for tr in table.find_all('tr'):
-                rows = []
+            for td in tr.find_all('td'):
+                for span in td.find_all('span'):
+                    span.decompose()
 
-                for td in tr.find_all('td'):
-                    for span in td.find_all('span'):
-                        span.decompose()
+                rows.append(text_strip(td.get_text()))
 
-                    rows.append(text_strip(td.get_text()))
-
-                if rows:
-                    container['sv'][rows[0]] = int(rows[3])
-                    container['fi'][rows[1]] = int(rows[3])
-        container['en'] = {**container['fi'], **container['sv']}
+            if rows:
+                container['sv'][rows[0]] = int(rows[3])
+                container['fi'][rows[1]] = int(rows[3])
+    container['en'] = {**container['fi'], **container['sv']}
 
     return container
 
 
-def cache_get(url, path, ftype='json'):
+def cache_get(url, path):
 
     headers = {
         'User-Agent': (
@@ -55,18 +54,22 @@ def cache_get(url, path, ftype='json'):
             "Chrome/50.0.2661.102 Safari/537.36")}
 
     response = requests.get(url=url, headers=headers)
-    if ftype == 'json':
-        content = response.json()
-    else:
-        content = wikipedia(response)
 
-    with open(path, 'w') as data:
-        data.write(json.dumps(content, indent=4))
+    if response.status_code == status.HTTP_200_OK:
 
-    return content
+        if '.json' in url:
+            content = response.json()
+        else:
+            content = wikipedia(response)
+
+        with open(path, 'w') as data:
+            data.write(json.dumps(content, indent=4))
+
+        return content
 
 
 def cache_load(path):
+
     with open(path) as f:
         data = json.load(f)
 
@@ -99,6 +102,7 @@ def district_strip(data, lang):
     category = target['category']
     labels = category['label']
     index = category['index']
+
     content = {
         k: {'name': v, 'cases': municipality_amount(
             value, index, k), 'population': population.get(v, 0)}
@@ -108,25 +112,23 @@ def district_strip(data, lang):
 
 
 def cache_expired(path, age=(60 * 60)):
+    time_diff = age
 
     if os.path.exists(path):
 
         time_now = datetime.now()
         time_stat = os.stat(path).st_mtime
         time_then = datetime.fromtimestamp(time_stat)
-        expired = (time_now - time_then).seconds
+        time_diff = (time_now - time_then).seconds
 
-    else:
-
-        expired = age + 1
-
-    return expired > age
+    return time_diff >= age
 
 
-def cache_path(path):
-    where = os.path.dirname(os.path.abspath(__file__))
-    os.makedirs(f'{where}/content', exist_ok=True)
-    path = f"{where}/content/{path}"
+def cache_path(file):
+
+    location = os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(f'{location}/content', exist_ok=True)
+    path = f"{location}/content/{file}"
 
     return path
 
@@ -168,7 +170,7 @@ def download_district_population(lang='sv'):
         url = (
             "https://sv.wikipedia.org/wiki/"
             "Lista_%C3%B6ver_Finlands_kommuner")
-        data = cache_get(url, path, ftype='wikipedia')
+        data = cache_get(url, path)
 
     else:
 
